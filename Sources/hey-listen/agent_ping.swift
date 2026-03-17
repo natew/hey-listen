@@ -652,7 +652,7 @@ private func findWindowBounds(_ query: String) -> (x: Double, y: Double, w: Doub
 @MainActor
 private func runFairy(_ args: [String]) {
     let flags = parseFlags(args)
-    let duration = Double(flags.named["duration"] ?? flags.named["d"] ?? "5.0") ?? 5.0
+    let duration = Double(flags.named["duration"] ?? flags.named["d"] ?? "10.0") ?? 10.0
     let message = flags.positional.isEmpty ? nil : flags.positional.joined(separator: " ")
     let windowQuery = flags.named["window"] ?? flags.named["w"]
     let atPos = flags.named["at"]
@@ -698,15 +698,17 @@ private func runFairy(_ args: [String]) {
     // don't touch activation policy — avoids stealing focus from other apps
     let app = NSApplication.shared
 
-    // measure bubble width
+    // measure bubble
     let bubbleText = message ?? ""
     let hasBubble = !bubbleText.isEmpty
-    let bubbleWidth: CGFloat = hasBubble ? min(CGFloat(bubbleText.count * 9 + 24), 300) : 0
+    let bubbleWidth: CGFloat = hasBubble ? min(CGFloat(bubbleText.count * 7 + 16), 240) : 0
     let fairySize: CGFloat = 50
-    let totalW = fairySize + (hasBubble ? bubbleWidth + 8 : 0)
+    let closeSize: CGFloat = 18
+    let totalW = fairySize + (hasBubble ? bubbleWidth + 8 : 0) + closeSize / 2
+    let totalH = fairySize + closeSize / 2
 
     let window = NSWindow(
-        contentRect: NSRect(x: posX, y: posY, width: totalW, height: fairySize + 10),
+        contentRect: NSRect(x: posX, y: posY, width: totalW, height: totalH),
         styleMask: [.borderless], backing: .buffered, defer: false)
     window.backgroundColor = .clear; window.isOpaque = false; window.level = .floating
     window.hasShadow = false
@@ -717,52 +719,67 @@ private func runFairy(_ args: [String]) {
 
     let fairyLabel = NSTextField(labelWithString: "🧚")
     fairyLabel.font = NSFont.systemFont(ofSize: 36)
-    fairyLabel.frame = NSRect(x: 0, y: 5, width: fairySize, height: fairySize)
+    fairyLabel.frame = NSRect(x: 0, y: 2, width: fairySize, height: fairySize)
     fairyLabel.alignment = .center
     contentView.addSubview(fairyLabel)
 
     if hasBubble {
-        let bubbleView = NSView(frame: NSRect(x: fairySize + 4, y: 13, width: bubbleWidth, height: 32))
+        let bubbleH: CGFloat = 26
+        let bubbleY: CGFloat = 14
+        let bubbleView = NSView(frame: NSRect(x: fairySize + 4, y: bubbleY, width: bubbleWidth, height: bubbleH))
         bubbleView.wantsLayer = true
         bubbleView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95).cgColor
-        bubbleView.layer?.cornerRadius = 8
+        bubbleView.layer?.cornerRadius = 7
+        bubbleView.shadow = NSShadow()
+        bubbleView.layer?.shadowColor = NSColor.black.withAlphaComponent(0.2).cgColor
+        bubbleView.layer?.shadowOffset = CGSize(width: 0, height: -1)
+        bubbleView.layer?.shadowRadius = 3
+        bubbleView.layer?.shadowOpacity = 1
         contentView.addSubview(bubbleView)
 
         let bubble = NSTextField(labelWithString: bubbleText)
-        bubble.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        bubble.font = NSFont(name: "Menlo", size: 11) ?? NSFont.systemFont(ofSize: 11, weight: .medium)
         bubble.textColor = .labelColor
         bubble.isBezeled = false; bubble.drawsBackground = false
         bubble.alignment = .center
-        bubble.frame = NSRect(x: 0, y: 6, width: bubbleWidth, height: 18)
+        bubble.frame = NSRect(x: 4, y: 4, width: bubbleWidth - 8, height: 16)
         bubbleView.addSubview(bubble)
     }
 
-    // close button top-right
-    let closeBtn = NSButton(title: "✕", target: nil, action: nil)
+    // close circle top-right, overlapping the edge
+    let closeContainer = NSView(frame: NSRect(x: totalW - closeSize, y: totalH - closeSize, width: closeSize, height: closeSize))
+    closeContainer.wantsLayer = true
+    closeContainer.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95).cgColor
+    closeContainer.layer?.cornerRadius = closeSize / 2
+    closeContainer.shadow = NSShadow()
+    closeContainer.layer?.shadowColor = NSColor.black.withAlphaComponent(0.2).cgColor
+    closeContainer.layer?.shadowOffset = CGSize(width: 0, height: -1)
+    closeContainer.layer?.shadowRadius = 2
+    closeContainer.layer?.shadowOpacity = 1
+    contentView.addSubview(closeContainer)
+
+    let closeBtn = NSButton(title: "✕", target: FairyCloseHandler.shared, action: #selector(FairyCloseHandler.close))
     closeBtn.isBordered = false
-    closeBtn.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-    closeBtn.frame = NSRect(x: totalW - 16, y: fairySize - 2, width: 16, height: 16)
-    closeBtn.target = FairyCloseHandler.shared
-    closeBtn.action = #selector(FairyCloseHandler.close)
-    contentView.addSubview(closeBtn)
+    closeBtn.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+    closeBtn.frame = NSRect(x: 0, y: 0, width: closeSize, height: closeSize)
+    closeContainer.addSubview(closeBtn)
 
     window.alphaValue = 0; window.orderFrontRegardless()
     NSAnimationContext.runAnimationGroup { $0.duration = 0.3; window.animator().alphaValue = 1 }
 
-    // gentle hover bob
+    // bob just the fairy emoji, not the whole window
     var bobUp = true
-    let bobTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-        DispatchQueue.main.async {
-            let dy: CGFloat = bobUp ? 6 : -6
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.9
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                var f = window.frame; f.origin.y += dy
-                window.animator().setFrame(f, display: true)
-            }
-            bobUp.toggle()
+    let bobTimer = Timer(timeInterval: 1.2, repeats: true) { _ in
+        let dy: CGFloat = bobUp ? 6 : -6
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 1.1
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            var f = fairyLabel.frame; f.origin.y += dy
+            fairyLabel.animator().frame = f
         }
+        bobUp.toggle()
     }
+    RunLoop.main.add(bobTimer, forMode: .common)
 
     DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
         bobTimer.invalidate()
