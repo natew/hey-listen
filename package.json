@@ -1,5 +1,5 @@
 {
-  "name": "hey-listen",
+  "name": "hey-listen-cli",
   "version": "0.1.0",
   "description": "system utilities for coding agents — sounds, notifications, toasts, screen overlays, window info, and a fairy",
   "license": "MIT",
@@ -14,7 +14,7 @@
   "os": ["darwin"],
   "cpu": ["arm64"],
   "scripts": {
-    "build": "swiftc -O -swift-version 5 -framework AppKit -framework AVFoundation -framework UserNotifications -framework IOKit -framework CoreGraphics -parse-as-library -target arm64-apple-macosx13.0 Sources/hey-listen/agent_ping.swift -o hey-listen",
+    "build": "swiftc -O -swift-version 5 -framework AppKit -framework AVFoundation -framework UserNotifications -framework IOKit -framework CoreGraphics -parse-as-library -target arm64-apple-macosx13.0 Sources/hey-listen/agent_ping.swift -o hey-listen && codesign --force --sign 'Apple Distribution: Tamagui LLC (399WY8X9HY)' hey-listen",
     "postinstall": "npm run build || echo 'build failed — requires macOS + Xcode CLI tools'",
     "test": "echo 'run: hey-listen --help'"
   },
@@ -27,11 +27,13 @@
     "agents",
     "coding-agents",
     "menu-bar",
-    "system-utilities"
+    "system-utilities",
+    "navi",
+    "fairy"
   ],
   "files": [
     "Sources/",
-    "Package.swift",
+    "sounds/",
     "LICENSE",
     "README.md"
   ],

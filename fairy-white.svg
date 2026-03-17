@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="976" height="976" viewBox="0 0 976 976" xmlns="http://www.w3.org/2000/svg">
+    <title>fairy</title>
+    <g stroke="none" fill="none" fill-rule="evenodd">
+        <g transform="translate(61, 183)">
+            <path fill="#FFFFFF" d="M0,178 L0,0 L122,0 L122,61 L244,61 L244,122 L305,122 L305,239 L122,239 L122,178 L0,178 Z"/>
+            <path fill="#FFFFFF" transform="translate(183, 366)" d="M0,244 L0,66 L61,66 L61,0 L122,0 L122,61 L183,61 L183,183 L122,183 L122,244 L0,244 Z"/>
+            <path fill="#FFFFFF" transform="translate(488, 366)" d="M0,178 L0,56 L61,56 L61,0 L122,0 L122,61 L183,61 L183,239 L61,239 L61,178 L0,178 Z"/>
+            <path fill="#FFFFFF" transform="translate(549, 0)" d="M122,239 L122,300 L61,300 L61,239 L0,239 L0,122 L61,122 L61,61 L183,61 L183,0 L305,0 L305,178 L244,178 L244,239 L122,239 Z"/>
+            <path fill="#FFFFFF" transform="translate(244, 122)" d="M244,366 L122,366 L122,305 L61,305 L61,244 L0,244 L0,122 L61,122 L61,61 L122,61 L122,0 L244,0 L244,66 L305,66 L305,127 L366,127 L366,249 L305,249 L305,305 L244,305 L244,366 Z"/>
+        </g>
+    </g>
+</svg>

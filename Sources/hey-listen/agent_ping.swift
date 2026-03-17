@@ -69,7 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.title = "🧚"
+            button.image = renderFairy(size: 18, forTray: true)
             button.toolTip = "hey-listen"
         }
 
@@ -678,6 +678,7 @@ private func runFairy(_ args: [String]) {
     let windowQuery = flags.named["window"] ?? flags.named["w"]
     let atPos = flags.named["at"]
     let corner = flags.named["corner"] ?? "top-right"
+    let soundName = flags.named["sound"] ?? flags.named["s"]
 
     let screen = NSScreen.main ?? NSScreen.screens[0]
     let screenH = screen.frame.height
@@ -738,11 +739,12 @@ private func runFairy(_ args: [String]) {
     let contentView = NSView(frame: window.contentView!.bounds)
     window.contentView = contentView
 
-    let fairyLabel = NSTextField(labelWithString: "🧚")
-    fairyLabel.font = NSFont.systemFont(ofSize: 36)
-    fairyLabel.frame = NSRect(x: 0, y: 2, width: fairySize, height: fairySize)
-    fairyLabel.alignment = .center
-    contentView.addSubview(fairyLabel)
+    let fairyImage = NSImageView(frame: NSRect(x: 4, y: 4, width: fairySize - 8, height: fairySize - 8))
+    fairyImage.image = renderFairy(size: fairySize - 8)
+    fairyImage.imageScaling = .scaleProportionallyUpOrDown
+    fairyImage.wantsLayer = true
+    fairyImage.layer?.magnificationFilter = .nearest
+    contentView.addSubview(fairyImage)
 
     if hasBubble {
         let bubbleH: CGFloat = 26
@@ -788,6 +790,15 @@ private func runFairy(_ args: [String]) {
     window.alphaValue = 0; window.orderFrontRegardless()
     NSAnimationContext.runAnimationGroup { $0.duration = 0.3; window.animator().alphaValue = 1 }
 
+    // play sound if requested
+    if let soundName {
+        let path = resolveSoundPath(soundName)
+        if let player = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: path)) {
+            player.play()
+            _fairySoundPlayer = player // prevent dealloc
+        }
+    }
+
     // bob just the fairy emoji, not the whole window
     var bobUp = true
     let bobTimer = Timer(timeInterval: 1.2, repeats: true) { _ in
@@ -795,8 +806,8 @@ private func runFairy(_ args: [String]) {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 1.1
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            var f = fairyLabel.frame; f.origin.y += dy
-            fairyLabel.animator().frame = f
+            var f = fairyImage.frame; f.origin.y += dy
+            fairyImage.animator().frame = f
         }
         bobUp.toggle()
     }
@@ -809,6 +820,78 @@ private func runFairy(_ args: [String]) {
     }
     app.run()
 }
+
+// MARK: - fairy pixel art renderer
+
+// renders the pixel art fairy as an NSImage at the given size
+// forTray: uses template rendering (white, marks as template for auto dark/light)
+func renderFairy(size: CGFloat, forTray: Bool = false) -> NSImage {
+    let img = NSImage(size: NSSize(width: size, height: size), flipped: true) { rect in
+        let ctx = NSGraphicsContext.current
+        ctx?.shouldAntialias = false
+        ctx?.imageInterpolation = .none
+        let scale = size / 976.0
+
+        ctx?.cgContext.translateBy(x: 61 * scale, y: 183 * scale)
+
+        let wings: NSColor = forTray ? .black : NSColor(red: 0.76, green: 0.76, blue: 0.76, alpha: 1)
+        let body: NSColor = forTray ? .black : NSColor(red: 0.35, green: 0.49, blue: 1.0, alpha: 1)
+
+        // top-left wing
+        let w1 = NSBezierPath()
+        w1.move(to: p(0, 178, scale)); w1.line(to: p(0, 0, scale)); w1.line(to: p(122, 0, scale))
+        w1.line(to: p(122, 61, scale)); w1.line(to: p(244, 61, scale)); w1.line(to: p(244, 122, scale))
+        w1.line(to: p(305, 122, scale)); w1.line(to: p(305, 239, scale)); w1.line(to: p(122, 239, scale))
+        w1.line(to: p(122, 178, scale)); w1.close()
+        wings.setFill(); w1.fill()
+
+        // bottom-left wing
+        let w2 = NSBezierPath()
+        w2.move(to: p(183, 610, scale)); w2.line(to: p(183, 432, scale)); w2.line(to: p(244, 432, scale))
+        w2.line(to: p(244, 366, scale)); w2.line(to: p(305, 366, scale)); w2.line(to: p(305, 427, scale))
+        w2.line(to: p(366, 427, scale)); w2.line(to: p(366, 549, scale)); w2.line(to: p(305, 549, scale))
+        w2.line(to: p(305, 610, scale)); w2.close()
+        wings.setFill(); w2.fill()
+
+        // bottom-right wing
+        let w3 = NSBezierPath()
+        w3.move(to: p(488, 544, scale)); w3.line(to: p(488, 422, scale)); w3.line(to: p(549, 422, scale))
+        w3.line(to: p(549, 366, scale)); w3.line(to: p(610, 366, scale)); w3.line(to: p(610, 427, scale))
+        w3.line(to: p(671, 427, scale)); w3.line(to: p(671, 605, scale)); w3.line(to: p(549, 605, scale))
+        w3.line(to: p(549, 544, scale)); w3.close()
+        wings.setFill(); w3.fill()
+
+        // top-right wing
+        let w4 = NSBezierPath()
+        w4.move(to: p(671, 239, scale)); w4.line(to: p(671, 300, scale)); w4.line(to: p(610, 300, scale))
+        w4.line(to: p(610, 239, scale)); w4.line(to: p(549, 239, scale)); w4.line(to: p(549, 122, scale))
+        w4.line(to: p(610, 122, scale)); w4.line(to: p(610, 61, scale)); w4.line(to: p(732, 61, scale))
+        w4.line(to: p(732, 0, scale)); w4.line(to: p(854, 0, scale)); w4.line(to: p(854, 178, scale))
+        w4.line(to: p(793, 178, scale)); w4.line(to: p(793, 239, scale)); w4.close()
+        wings.setFill(); w4.fill()
+
+        // body (blue diamond)
+        let b1 = NSBezierPath()
+        b1.move(to: p(488, 488, scale)); b1.line(to: p(366, 488, scale)); b1.line(to: p(366, 427, scale))
+        b1.line(to: p(305, 427, scale)); b1.line(to: p(305, 366, scale)); b1.line(to: p(244, 366, scale))
+        b1.line(to: p(244, 244, scale)); b1.line(to: p(305, 244, scale)); b1.line(to: p(305, 183, scale))
+        b1.line(to: p(366, 183, scale)); b1.line(to: p(366, 122, scale)); b1.line(to: p(488, 122, scale))
+        b1.line(to: p(488, 188, scale)); b1.line(to: p(549, 188, scale)); b1.line(to: p(549, 249, scale))
+        b1.line(to: p(610, 249, scale)); b1.line(to: p(610, 371, scale)); b1.line(to: p(549, 371, scale))
+        b1.line(to: p(549, 427, scale)); b1.line(to: p(488, 427, scale)); b1.close()
+        body.setFill(); b1.fill()
+
+        return true
+    }
+    if forTray { img.isTemplate = true }
+    return img
+}
+
+private func p(_ x: CGFloat, _ y: CGFloat, _ s: CGFloat) -> NSPoint {
+    NSPoint(x: x * s, y: y * s)
+}
+
+private var _fairySoundPlayer: AVAudioPlayer?
 
 class FairyCloseHandler: NSObject {
     static let shared = FairyCloseHandler()
