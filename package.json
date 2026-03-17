@@ -1,0 +1,41 @@
+{
+  "name": "hey-listen",
+  "version": "0.1.0",
+  "description": "system utilities for coding agents — sounds, notifications, toasts, screen overlays, window info, and a fairy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/natew/hey-listen"
+  },
+  "author": "Nate Weinert",
+  "bin": {
+    "hey-listen": "hey-listen"
+  },
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "scripts": {
+    "build": "swiftc -O -swift-version 5 -framework AppKit -framework AVFoundation -framework UserNotifications -framework IOKit -framework CoreGraphics -parse-as-library -target arm64-apple-macosx13.0 Sources/hey-listen/agent_ping.swift -o hey-listen",
+    "postinstall": "npm run build || echo 'build failed — requires macOS + Xcode CLI tools'",
+    "test": "echo 'run: hey-listen --help'"
+  },
+  "keywords": [
+    "macos",
+    "cli",
+    "notifications",
+    "sounds",
+    "overlay",
+    "agents",
+    "coding-agents",
+    "menu-bar",
+    "system-utilities"
+  ],
+  "files": [
+    "Sources/",
+    "Package.swift",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16"
+  }
+}
