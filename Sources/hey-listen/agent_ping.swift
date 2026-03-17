@@ -436,15 +436,36 @@ private func handleSound(_ args: [String]) async {
     }
 }
 
+// navi sounds bundled alongside the binary
+private let NAVI_SOUNDS = ["hey", "hello", "listen", "look", "watchout", "in", "out", "float", "bonk"]
+
+private func soundsDir() -> String {
+    let exe = Bundle.main.executablePath ?? CommandLine.arguments[0]
+    let dir = (exe as NSString).deletingLastPathComponent
+    return "\(dir)/sounds"
+}
+
 private func resolveSoundPath(_ name: String) -> String {
-    if let alias = SOUND_ALIASES[name.lowercased()] { return "/System/Library/Sounds/\(alias).aiff" }
+    let lower = name.lowercased()
+    // navi sounds
+    if NAVI_SOUNDS.contains(lower) {
+        let path = "\(soundsDir())/\(lower).wav"
+        if FileManager.default.fileExists(atPath: path) { return path }
+    }
+    // system sound aliases
+    if let alias = SOUND_ALIASES[lower] { return "/System/Library/Sounds/\(alias).aiff" }
+    // direct path
     if FileManager.default.fileExists(atPath: name) { return name }
+    // system sound by name
     let sys = "/System/Library/Sounds/\(name).aiff"
     if FileManager.default.fileExists(atPath: sys) { return sys }
     printError("sound not found: \(name). use --list"); exit(1)
 }
 
 private func listSounds() {
+    print("navi sounds:")
+    for s in NAVI_SOUNDS { print("  \(s)") }
+    print("")
     guard let files = try? FileManager.default.contentsOfDirectory(atPath: "/System/Library/Sounds") else { return }
     let rev = Dictionary(uniqueKeysWithValues: SOUND_ALIASES.map { ($1, $0) })
     print("system sounds:")
