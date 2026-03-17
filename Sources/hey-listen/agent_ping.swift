@@ -66,10 +66,6 @@ private var _appDelegate: AppDelegate?
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
-    var animTimer: Timer?
-    var frameIndex = 0
-    let frames = ["🧚", "✨", "🧚‍♀️", "💫"]
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -89,14 +85,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         self.statusItem.menu = menu
-
-        animTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                self.frameIndex = (self.frameIndex + 1) % self.frames.count
-                self.statusItem.button?.title = self.frames[self.frameIndex]
-            }
-        }
     }
 
     @objc func openSetup() {
@@ -508,7 +496,6 @@ private func runToast(_ args: [String]) {
     let message = flags.positional.joined(separator: " ")
 
     let app = NSApplication.shared
-    app.setActivationPolicy(.accessory)
 
     let screen = NSScreen.main ?? NSScreen.screens[0]
     let sf = screen.visibleFrame
@@ -536,8 +523,8 @@ private func runToast(_ args: [String]) {
     NSAnimationContext.runAnimationGroup { $0.duration = 0.3; window.animator().alphaValue = 1 }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-        NSAnimationContext.runAnimationGroup({ $0.duration = 0.5; window.animator().alphaValue = 0 },
-            completionHandler: { NSApp.terminate(nil) })
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.4; window.animator().alphaValue = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
     }
     app.run()
 }
@@ -567,7 +554,6 @@ private func runHighlight(_ args: [String]) {
     let color = colors[colorName.lowercased()] ?? .systemRed
 
     let app = NSApplication.shared
-    app.setActivationPolicy(.accessory)
 
     let screenH = (NSScreen.main ?? NSScreen.screens[0]).frame.height
     let flippedY = screenH - y - h
@@ -597,7 +583,7 @@ private func runHighlight(_ args: [String]) {
     DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
         pulseTimer.invalidate()
         NSAnimationContext.runAnimationGroup({ $0.duration = 0.3; window.animator().alphaValue = 0 },
-            completionHandler: { NSApp.terminate(nil) })
+            completionHandler: { exit(0) })
     }
     app.run()
 }
@@ -645,83 +631,150 @@ class HighlightView: NSView {
     }
 }
 
-// MARK: - fairy (floating animated fairy)
+// MARK: - fairy (positionable floating fairy with speech bubble)
+
+// find a window's bounds by app name or title
+private func findWindowBounds(_ query: String) -> (x: Double, y: Double, w: Double, h: Double)? {
+    guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+    for win in list {
+        let owner = win[kCGWindowOwnerName as String] as? String ?? ""
+        let title = win[kCGWindowName as String] as? String ?? ""
+        let layer = win[kCGWindowLayer as String] as? Int ?? 0
+        if layer != 0 { continue }
+        if owner.localizedCaseInsensitiveContains(query) || title.localizedCaseInsensitiveContains(query) {
+            let b = win[kCGWindowBounds as String] as? [String: Any] ?? [:]
+            return (b["X"] as? Double ?? 0, b["Y"] as? Double ?? 0, b["Width"] as? Double ?? 0, b["Height"] as? Double ?? 0)
+        }
+    }
+    return nil
+}
 
 @MainActor
 private func runFairy(_ args: [String]) {
     let flags = parseFlags(args)
     let duration = Double(flags.named["duration"] ?? flags.named["d"] ?? "5.0") ?? 5.0
     let message = flags.positional.isEmpty ? nil : flags.positional.joined(separator: " ")
-
-    let app = NSApplication.shared
-    app.setActivationPolicy(.accessory)
+    let windowQuery = flags.named["window"] ?? flags.named["w"]
+    let atPos = flags.named["at"]
+    let corner = flags.named["corner"] ?? "top-right"
 
     let screen = NSScreen.main ?? NSScreen.screens[0]
-    let sf = screen.visibleFrame
-    let fairySize: CGFloat = 60
+    let screenH = screen.frame.height
 
-    // create a small borderless window for the fairy
+    // resolve position
+    var posX: CGFloat = screen.visibleFrame.midX
+    var posY: CGFloat = screen.visibleFrame.midY
+
+    if let windowQuery, let wb = findWindowBounds(windowQuery) {
+        // position relative to window corner (coordinates are top-left origin from CG)
+        switch corner {
+        case "top-left", "tl":
+            posX = CGFloat(wb.x) - 30
+            posY = screenH - CGFloat(wb.y) + 10
+        case "top-right", "tr":
+            posX = CGFloat(wb.x + wb.w) - 40
+            posY = screenH - CGFloat(wb.y) + 10
+        case "bottom-left", "bl":
+            posX = CGFloat(wb.x) - 30
+            posY = screenH - CGFloat(wb.y + wb.h) - 60
+        case "bottom-right", "br":
+            posX = CGFloat(wb.x + wb.w) - 40
+            posY = screenH - CGFloat(wb.y + wb.h) - 60
+        case "center":
+            posX = CGFloat(wb.x + wb.w / 2) - 30
+            posY = screenH - CGFloat(wb.y + wb.h / 2)
+        default:
+            posX = CGFloat(wb.x + wb.w) - 40
+            posY = screenH - CGFloat(wb.y) + 10
+        }
+    } else if let atPos {
+        let parts = atPos.split(separator: ",")
+        if parts.count == 2, let ax = Double(parts[0]), let ay = Double(parts[1]) {
+            posX = CGFloat(ax)
+            posY = screenH - CGFloat(ay) // convert top-left to bottom-left
+        }
+    }
+
+    // don't touch activation policy — avoids stealing focus from other apps
+    let app = NSApplication.shared
+
+    // measure bubble width
+    let bubbleText = message ?? ""
+    let hasBubble = !bubbleText.isEmpty
+    let bubbleWidth: CGFloat = hasBubble ? min(CGFloat(bubbleText.count * 9 + 24), 300) : 0
+    let fairySize: CGFloat = 50
+    let totalW = fairySize + (hasBubble ? bubbleWidth + 8 : 0)
+
     let window = NSWindow(
-        contentRect: NSRect(x: sf.midX, y: sf.midY, width: fairySize + 200, height: fairySize + 20),
+        contentRect: NSRect(x: posX, y: posY, width: totalW, height: fairySize + 10),
         styleMask: [.borderless], backing: .buffered, defer: false)
     window.backgroundColor = .clear; window.isOpaque = false; window.level = .floating
-    window.hasShadow = false; window.ignoresMouseEvents = true
+    window.hasShadow = false
     window.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
     let contentView = NSView(frame: window.contentView!.bounds)
     window.contentView = contentView
 
     let fairyLabel = NSTextField(labelWithString: "🧚")
-    fairyLabel.font = NSFont.systemFont(ofSize: 40)
-    fairyLabel.frame = NSRect(x: 0, y: 0, width: fairySize, height: fairySize)
+    fairyLabel.font = NSFont.systemFont(ofSize: 36)
+    fairyLabel.frame = NSRect(x: 0, y: 5, width: fairySize, height: fairySize)
     fairyLabel.alignment = .center
     contentView.addSubview(fairyLabel)
 
-    if let message {
-        // speech bubble next to fairy
-        let bubble = NSTextField(labelWithString: message)
-        bubble.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+    if hasBubble {
+        let bubbleView = NSView(frame: NSRect(x: fairySize + 4, y: 13, width: bubbleWidth, height: 32))
+        bubbleView.wantsLayer = true
+        bubbleView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95).cgColor
+        bubbleView.layer?.cornerRadius = 8
+        contentView.addSubview(bubbleView)
+
+        let bubble = NSTextField(labelWithString: bubbleText)
+        bubble.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         bubble.textColor = .labelColor
-        bubble.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95)
-        bubble.isBezeled = false; bubble.drawsBackground = true
-        bubble.wantsLayer = true; bubble.layer?.cornerRadius = 8
-        bubble.frame = NSRect(x: fairySize + 4, y: 15, width: 190, height: 30)
+        bubble.isBezeled = false; bubble.drawsBackground = false
         bubble.alignment = .center
-        contentView.addSubview(bubble)
+        bubble.frame = NSRect(x: 0, y: 6, width: bubbleWidth, height: 18)
+        bubbleView.addSubview(bubble)
     }
+
+    // close button top-right
+    let closeBtn = NSButton(title: "✕", target: nil, action: nil)
+    closeBtn.isBordered = false
+    closeBtn.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+    closeBtn.frame = NSRect(x: totalW - 16, y: fairySize - 2, width: 16, height: 16)
+    closeBtn.target = FairyCloseHandler.shared
+    closeBtn.action = #selector(FairyCloseHandler.close)
+    contentView.addSubview(closeBtn)
 
     window.alphaValue = 0; window.orderFrontRegardless()
     NSAnimationContext.runAnimationGroup { $0.duration = 0.3; window.animator().alphaValue = 1 }
 
-    // generate random waypoints on screen
-    let emojis = ["🧚", "🧚‍♀️", "✨", "🧚", "💫", "🧚‍♀️"]
-    var emojiIdx = 0
-
-    // float to random positions
-    let moveTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { _ in
+    // gentle hover bob
+    var bobUp = true
+    let bobTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
         DispatchQueue.main.async {
-            let newX = sf.origin.x + CGFloat.random(in: 100...(sf.width - 300))
-            let newY = sf.origin.y + CGFloat.random(in: 100...(sf.height - 100))
-
+            let dy: CGFloat = bobUp ? 6 : -6
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 1.0
+                ctx.duration = 0.9
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                window.animator().setFrame(
-                    NSRect(x: newX, y: newY, width: window.frame.width, height: window.frame.height),
-                    display: true)
+                var f = window.frame; f.origin.y += dy
+                window.animator().setFrame(f, display: true)
             }
-
-            emojiIdx = (emojiIdx + 1) % emojis.count
-            fairyLabel.stringValue = emojis[emojiIdx]
+            bobUp.toggle()
         }
     }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-        moveTimer.invalidate()
-        NSAnimationContext.runAnimationGroup({ $0.duration = 0.5; window.animator().alphaValue = 0 },
-            completionHandler: { NSApp.terminate(nil) })
+        bobTimer.invalidate()
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.4; window.animator().alphaValue = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
     }
     app.run()
+}
+
+class FairyCloseHandler: NSObject {
+    static let shared = FairyCloseHandler()
+    @objc func close() { exit(0) }
 }
 
 // MARK: - say
@@ -855,7 +908,10 @@ private func printUsage() {
       toast <message>              floating overlay banner
         --duration <seconds>       display time (default: 3.0)
 
-      fairy [message]              floating fairy that flies around the screen
+      fairy [message]              floating fairy with optional speech bubble
+        --window <name>            position on a window (app or title match)
+        --corner <pos>             tl, tr, bl, br, center (default: tr)
+        --at <x,y>                 exact screen position (top-left origin)
         --duration <seconds>       how long (default: 5.0)
 
       highlight <x> <y> <w> <h>   pulsing bounding box overlay
@@ -885,7 +941,8 @@ private func printUsage() {
 
     examples:
       hey-listen sound done
-      hey-listen fairy "hey! look at this!"
+      hey-listen fairy "check this!" --window Terminal
+      hey-listen fairy "hey!" --at 500,300
       hey-listen notify "Build done" "all tests passed"
       hey-listen highlight 100 200 400 300 --color green --label "button"
       hey-listen windows --app Terminal --json
