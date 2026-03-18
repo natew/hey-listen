@@ -3,7 +3,6 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import IOKit.ps
-import UserNotifications
 
 let VERSION = "0.1.0"
 let LAUNCHAGENT_LABEL = "com.hey-listen.daemon"
@@ -15,7 +14,12 @@ struct HeyListen {
     static func main() async {
         let args = Array(CommandLine.arguments.dropFirst())
 
-        if args.isEmpty || args.first == "daemon" {
+        if args.isEmpty {
+            printUsage()
+            return
+        }
+
+        if args.first == "daemon" {
             await MainActor.run { startDaemon() }
             return
         }
@@ -121,8 +125,6 @@ private var _setupDelegate: SetupDelegate?
 class SetupDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     var pollTimer: Timer?
-    var notifStatus: NSTextField!
-    var notifBtn: NSButton!
     var accessStatus: NSTextField!
     var accessBtn: NSButton!
     var loginStatus: NSTextField!
@@ -191,13 +193,7 @@ class SetupDelegate: NSObject, NSApplicationDelegate {
         permDesc.frame = NSRect(x: 40, y: h - 248, width: 400, height: 16)
         content.addSubview(permDesc)
 
-        var y = h - 292
-
-        let (notifRow, ns, nb) = makePermRow(y: y, width: w, icon: "🔔", label: "Notifications",
-            desc: "send alerts when tasks complete", action: #selector(grantNotifications))
-        notifStatus = ns; notifBtn = nb
-        content.addSubview(notifRow)
-        y -= 68
+        var y = h - 310
 
         let (accessRow, as2, ab) = makePermRow(y: y, width: w, icon: "🤖", label: "Accessibility",
             desc: "read window titles and bounds", action: #selector(grantAccessibility))
@@ -260,18 +256,6 @@ class SetupDelegate: NSObject, NSApplicationDelegate {
     }
 
     func refreshPermissions() {
-        // UNUserNotificationCenter crashes without a bundle, so guard it
-        if Bundle.main.bundleIdentifier != nil {
-            UNUserNotificationCenter.current().getNotificationSettings { settings in
-                DispatchQueue.main.async {
-                    self.setPermStatus(self.notifStatus, self.notifBtn, granted: settings.authorizationStatus == .authorized)
-                }
-            }
-        } else {
-            setPermStatus(notifStatus, notifBtn, granted: false)
-            notifStatus.stringValue = "⚠️ needs .app bundle"
-            notifBtn.isEnabled = false
-        }
         setPermStatus(accessStatus, accessBtn, granted: AXIsProcessTrusted())
         setPermStatus(loginStatus, loginBtn, granted: isLoginItemInstalled())
     }
@@ -287,20 +271,6 @@ class SetupDelegate: NSObject, NSApplicationDelegate {
             label.textColor = .systemOrange
             btn.title = "Grant"
             btn.isEnabled = true
-        }
-    }
-
-    @objc func grantNotifications() {
-        guard Bundle.main.bundleIdentifier != nil else {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.notifications")!)
-            return
-        }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            if !granted {
-                DispatchQueue.main.async {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.notifications")!)
-                }
-            }
         }
     }
 
@@ -439,20 +409,27 @@ private func handleInstall() {
         }
     }
 
-    print("")
-    print("run permissions setup? (y/n)")
-    print("> ", terminator: ""); fflush(stdout)
-    let setupChoice = (readLine() ?? "y").trimmingCharacters(in: .whitespaces).lowercased()
-    if setupChoice == "y" || setupChoice == "yes" || setupChoice.isEmpty {
-        // launch setup as a separate process since it needs MainActor + app.run()
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: resolvedExe)
-        p.arguments = ["setup"]
-        try? p.run(); p.waitUntilExit()
+    // install claude code skills
+    let skillsSource = "\((resolvedExe as NSString).deletingLastPathComponent)/skills"
+    let claudeCommands = "\(NSHomeDirectory())/.claude/commands"
+    if fm.fileExists(atPath: skillsSource) {
+        try? fm.createDirectory(atPath: claudeCommands, withIntermediateDirectories: true)
+        let skillFiles = (try? fm.contentsOfDirectory(atPath: skillsSource)) ?? []
+        for file in skillFiles where file.hasSuffix(".md") {
+            let src = "\(skillsSource)/\(file)"
+            let dst = "\(claudeCommands)/\(file)"
+            try? fm.removeItem(atPath: dst)
+            try? fm.copyItem(atPath: src, toPath: dst)
+        }
+        if !skillFiles.isEmpty {
+            print("installed claude code skills: \(skillFiles.map { $0.replacingOccurrences(of: ".md", with: "") }.joined(separator: ", "))")
+        }
     }
 
     print("")
-    print("done! try: hey-listen sound hey")
+    print("done! try:")
+    print("  hey-listen sound hey")
+    print("  hey-listen setup        # grant permissions")
 }
 
 private func handleUninstall() {

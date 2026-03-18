@@ -19,7 +19,7 @@
   },
   "packageManager": "bun@1.3.9",
   "scripts": {
-    "build": "swiftc -O -swift-version 5 -framework AppKit -framework AVFoundation -framework UserNotifications -framework IOKit -framework CoreGraphics -parse-as-library -target arm64-apple-macosx13.0 Sources/hey-listen/agent_ping.swift -o hey-listen",
+    "build": "swiftc -O -swift-version 5 -framework AppKit -framework AVFoundation -framework IOKit -framework CoreGraphics -parse-as-library -target arm64-apple-macosx13.0 Sources/hey-listen/agent_ping.swift -o hey-listen",
     "sign": "codesign --force --sign 'Apple Distribution: Tamagui LLC (399WY8X9HY)' hey-listen",
     "build:sign": "bun run build && bun run sign"
   },
