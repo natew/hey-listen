@@ -39,6 +39,8 @@ struct HeyListen {
         case "highlight": await MainActor.run { runHighlight(rest) }
         case "fairy": await MainActor.run { runFairy(rest) }
         case "login": handleLogin(rest)
+        case "install": handleInstall()
+        case "uninstall": handleUninstall()
         case "help", "--help", "-h": printUsage()
         case "version", "--version", "-v": print("hey-listen \(VERSION)")
         default:
@@ -258,10 +260,17 @@ class SetupDelegate: NSObject, NSApplicationDelegate {
     }
 
     func refreshPermissions() {
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
-            DispatchQueue.main.async {
-                self.setPermStatus(self.notifStatus, self.notifBtn, granted: settings.authorizationStatus == .authorized)
+        // UNUserNotificationCenter crashes without a bundle, so guard it
+        if Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                DispatchQueue.main.async {
+                    self.setPermStatus(self.notifStatus, self.notifBtn, granted: settings.authorizationStatus == .authorized)
+                }
             }
+        } else {
+            setPermStatus(notifStatus, notifBtn, granted: false)
+            notifStatus.stringValue = "⚠️ needs .app bundle"
+            notifBtn.isEnabled = false
         }
         setPermStatus(accessStatus, accessBtn, granted: AXIsProcessTrusted())
         setPermStatus(loginStatus, loginBtn, granted: isLoginItemInstalled())
@@ -282,6 +291,10 @@ class SetupDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func grantNotifications() {
+        guard Bundle.main.bundleIdentifier != nil else {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.notifications")!)
+            return
+        }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             if !granted {
                 DispatchQueue.main.async {
@@ -353,6 +366,111 @@ private func handleLogin(_ args: [String]) {
     case "status": print("login: \(isLoginItemInstalled() ? "enabled" : "disabled")")
     default: printError("usage: hey-listen login <enable|disable|status>"); exit(1)
     }
+}
+
+// MARK: - install (guided CLI setup)
+
+private func handleInstall() {
+    let fm = FileManager.default
+    let exe = Bundle.main.executablePath ?? CommandLine.arguments[0]
+    let resolvedExe = (exe as NSString).standardizingPath
+    let srcSounds = soundsDir()
+
+    // check if already in a standard PATH location
+    let pathDirs = ["/usr/local/bin", "\(NSHomeDirectory())/.local/bin"]
+    let alreadyInPath = pathDirs.contains((resolvedExe as NSString).deletingLastPathComponent)
+
+    print("hey-listen install")
+    print("")
+
+    if alreadyInPath {
+        print("binary already in PATH: \(resolvedExe)")
+    } else {
+        // pick install location
+        let localBin = "\(NSHomeDirectory())/.local/bin"
+        let usrLocalBin = "/usr/local/bin"
+
+        print("install hey-listen to PATH?")
+        print("  1) \(localBin)")
+        print("  2) \(usrLocalBin) (requires sudo)")
+        print("  s) skip")
+        print("")
+        print("> ", terminator: ""); fflush(stdout)
+
+        let choice = (readLine() ?? "1").trimmingCharacters(in: .whitespaces)
+        let destDir: String
+
+        switch choice {
+        case "2": destDir = usrLocalBin
+        case "s", "S": destDir = ""
+        default: destDir = localBin
+        }
+
+        if !destDir.isEmpty {
+            try? fm.createDirectory(atPath: destDir, withIntermediateDirectories: true)
+
+            let destBin = "\(destDir)/hey-listen"
+            try? fm.removeItem(atPath: destBin)
+            do {
+                try fm.copyItem(atPath: resolvedExe, toPath: destBin)
+                // make executable
+                try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destBin)
+                print("copied binary to \(destBin)")
+            } catch {
+                printError("failed to copy: \(error.localizedDescription)")
+                printError("try: sudo cp '\(resolvedExe)' '\(destBin)'")
+            }
+
+            // copy sounds
+            let destSounds = "\(destDir)/sounds"
+            if fm.fileExists(atPath: srcSounds) {
+                try? fm.removeItem(atPath: destSounds)
+                try? fm.copyItem(atPath: srcSounds, toPath: destSounds)
+                print("copied sounds to \(destSounds)")
+            }
+
+            // check if destDir is in PATH
+            let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
+            if !path.contains(destDir) {
+                print("")
+                print("add to your shell profile:")
+                print("  export PATH=\"\(destDir):$PATH\"")
+            }
+        }
+    }
+
+    print("")
+    print("run permissions setup? (y/n)")
+    print("> ", terminator: ""); fflush(stdout)
+    let setupChoice = (readLine() ?? "y").trimmingCharacters(in: .whitespaces).lowercased()
+    if setupChoice == "y" || setupChoice == "yes" || setupChoice.isEmpty {
+        // launch setup as a separate process since it needs MainActor + app.run()
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: resolvedExe)
+        p.arguments = ["setup"]
+        try? p.run(); p.waitUntilExit()
+    }
+
+    print("")
+    print("done! try: hey-listen sound hey")
+}
+
+private func handleUninstall() {
+    let fm = FileManager.default
+    let pathDirs = ["/usr/local/bin/hey-listen", "\(NSHomeDirectory())/.local/bin/hey-listen"]
+    var removed = false
+    for path in pathDirs {
+        if fm.fileExists(atPath: path) {
+            try? fm.removeItem(atPath: path)
+            // remove sounds dir next to it
+            let soundsPath = (path as NSString).deletingLastPathComponent + "/sounds"
+            try? fm.removeItem(atPath: soundsPath)
+            print("removed: \(path)")
+            removed = true
+        }
+    }
+    if !removed { print("not found in standard locations") }
+    removeLoginItem()
 }
 
 // MARK: - windows (read-only window info)
@@ -1052,6 +1170,8 @@ private func printUsage() {
 
       open <url|path>              open in browser/Finder
       login enable|disable|status  start hey-listen on login
+      install                      guided setup (copy to PATH + permissions)
+      uninstall                    remove from PATH
 
       info [topic]                 system info
         battery, dark-mode, display, front-app, all
