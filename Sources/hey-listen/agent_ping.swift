@@ -632,16 +632,18 @@ private func runToast(_ args: [String]) {
     let label = NSTextField(labelWithString: "🧚 \(message)")
     label.font = NSFont.systemFont(ofSize: 16, weight: .medium)
     label.textColor = .labelColor; label.alignment = .center
-    label.frame = vfx.bounds; label.autoresizingMask = [.width, .height]
+    // vertically center by using a fixed y offset
+    label.frame = NSRect(x: 0, y: (wh - 22) / 2, width: ww, height: 22)
     vfx.addSubview(label)
 
     window.alphaValue = 0; window.orderFrontRegardless()
     NSAnimationContext.runAnimationGroup { $0.duration = 0.3; window.animator().alphaValue = 1 }
 
-    DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+    let exitTimer = Timer(timeInterval: duration, repeats: false) { _ in
         NSAnimationContext.runAnimationGroup { $0.duration = 0.4; window.animator().alphaValue = 0 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
     }
+    RunLoop.main.add(exitTimer, forMode: .common)
     app.run()
 }
 
@@ -689,18 +691,18 @@ private func runHighlight(_ args: [String]) {
     NSAnimationContext.runAnimationGroup { $0.duration = 0.2; window.animator().alphaValue = 1 }
 
     var pulseUp = false
-    let pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-        DispatchQueue.main.async {
-            NSAnimationContext.runAnimationGroup { $0.duration = 0.5; window.animator().alphaValue = pulseUp ? 1.0 : 0.6 }
-            pulseUp.toggle()
-        }
+    let pulseTimer = Timer(timeInterval: 0.5, repeats: true) { _ in
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.5; window.animator().alphaValue = pulseUp ? 1.0 : 0.6 }
+        pulseUp.toggle()
     }
+    RunLoop.main.add(pulseTimer, forMode: .common)
 
-    DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+    let exitTimer = Timer(timeInterval: duration, repeats: false) { _ in
         pulseTimer.invalidate()
-        NSAnimationContext.runAnimationGroup({ $0.duration = 0.3; window.animator().alphaValue = 0 },
-            completionHandler: { exit(0) })
+        NSAnimationContext.runAnimationGroup { $0.duration = 0.3; window.animator().alphaValue = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { exit(0) }
     }
+    RunLoop.main.add(exitTimer, forMode: .common)
     app.run()
 }
 
