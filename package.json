@@ -1,6 +1,6 @@
 {
   "name": "hey-listen-cli",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "system utilities for coding agents — sounds, notifications, toasts, screen overlays, window info, and a fairy",
   "license": "MIT",
   "type": "module",
@@ -39,6 +39,7 @@
   "files": [
     "hey-listen",
     "sounds/",
+    "skills/",
     "Sources/",
     "LICENSE",
     "README.md"
